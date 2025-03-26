@@ -12,40 +12,39 @@ FONT = pygame.font.Font(None, 36)
 # Colors
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
-GREEN = (0, 255, 0)
-RED = (255, 0, 0)
 BLUE = (0, 0, 255)
 
 # Goal state
-goal_state = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 0]])
+goal_state = ((1, 2, 3), (4, 5, 6), (7, 8, 0))  # Converted to a tuple
 
 def heuristic_misplaced_tiles(state):
-    """Heuristic H1: Counts the number of misplaced tiles."""
-    return np.sum((state != goal_state) & (state != 0))
+    """H1: Number of misplaced tiles (excluding empty tile)."""
+    return sum(state[i][j] != goal_state[i][j] and state[i][j] != 0 for i in range(3) for j in range(3))
 
 def heuristic_manhattan_distance(state):
-    """Heuristic H2: Computes the sum of Manhattan distances."""
+    """H2: Sum of Manhattan distances of all tiles from their goal positions."""
     total_distance = 0
     for i in range(3):
         for j in range(3):
-            if state[i, j] != 0:
-                x, y = divmod(state[i, j] - 1, 3)
+            tile = state[i][j]
+            if tile != 0:  # Ignore empty tile
+                x, y = divmod(tile - 1, 3)
                 total_distance += abs(x - i) + abs(y - j)
     return total_distance
 
 def get_neighbors(state):
     """Returns possible moves from the current state."""
     neighbors = []
-    x, y = np.where(state == 0)
-    x, y = x[0], y[0]
-    moves = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+    state_list = [list(row) for row in state]  # Convert tuple to mutable list
+    x, y = next((i, j) for i in range(3) for j in range(3) if state[i][j] == 0)
     
+    moves = [(-1, 0), (1, 0), (0, -1), (0, 1)]
     for dx, dy in moves:
         nx, ny = x + dx, y + dy
         if 0 <= nx < 3 and 0 <= ny < 3:
-            new_state = state.copy()
-            new_state[x, y], new_state[nx, ny] = new_state[nx, ny], new_state[x, y]
-            neighbors.append(new_state)
+            new_state = [row[:] for row in state_list]  # Copy state
+            new_state[x][y], new_state[nx][ny] = new_state[nx][ny], new_state[x][y]
+            neighbors.append(tuple(map(tuple, new_state)))  # Convert back to tuple
     
     return neighbors
 
@@ -53,28 +52,29 @@ def a_star_solver(start_state, heuristic):
     """A* algorithm for solving the 8-puzzle problem."""
     priority_queue = [(heuristic(start_state), 0, start_state, [])]
     visited = set()
+    nodes_explored = 0
     
     while priority_queue:
         _, cost, state, path = heapq.heappop(priority_queue)
-        state_tuple = tuple(map(tuple, state))
         
-        if state_tuple in visited:
+        if state in visited:
             continue
-        
+
         path = path + [state]
-        visited.add(state_tuple)
-        
+        visited.add(state)
+        nodes_explored += 1
+
         draw_puzzle(state)
-        pygame.time.delay(500)
+        pygame.time.delay(300)
         
-        if np.array_equal(state, goal_state):
-            return cost, path
+        if state == goal_state:
+            return cost, path, nodes_explored
         
         for neighbor in get_neighbors(state):
-            if tuple(map(tuple, neighbor)) not in visited:
+            if neighbor not in visited:
                 heapq.heappush(priority_queue, (cost + 1 + heuristic(neighbor), cost + 1, neighbor, path))
     
-    return float('inf'), []
+    return float('inf'), [], nodes_explored
 
 def draw_puzzle(state):
     """Draws the 8-puzzle state."""
@@ -83,22 +83,22 @@ def draw_puzzle(state):
     
     for i in range(3):
         for j in range(3):
-            if state[i, j] != 0:
+            if state[i][j] != 0:
                 pygame.draw.rect(screen, BLUE, (j * tile_size, i * tile_size, tile_size, tile_size))
-                text = FONT.render(str(state[i, j]), True, WHITE)
+                text = FONT.render(str(state[i][j]), True, WHITE)
                 screen.blit(text, (j * tile_size + tile_size // 3, i * tile_size + tile_size // 3))
     
     pygame.display.flip()
 
-# Initial state of the 8-puzzle
-start_state = np.array([[1, 2, 3], [4, 0, 5], [6, 7, 8]])
+# Initial state of the 8-puzzle (converted to tuple)
+start_state = ((1, 2, 3), (4, 0, 5), (6, 7, 8))
 
 # Solve using A* with both heuristics
-cost1, path1 = a_star_solver(start_state, heuristic_misplaced_tiles)
-cost2, path2 = a_star_solver(start_state, heuristic_manhattan_distance)
+cost1, path1, nodes1 = a_star_solver(start_state, heuristic_misplaced_tiles)
+cost2, path2, nodes2 = a_star_solver(start_state, heuristic_manhattan_distance)
 
-print(f"Misplaced Tiles Heuristic - Cost: {cost1}, Steps: {len(path1)}")
-print(f"Manhattan Distance Heuristic - Cost: {cost2}, Steps: {len(path2)}")
+print(f"Misplaced Tiles Heuristic - Cost: {cost1}, Steps: {len(path1)}, Nodes Explored: {nodes1}")
+print(f"Manhattan Distance Heuristic - Cost: {cost2}, Steps: {len(path2)}, Nodes Explored: {nodes2}")
 
 # Keep window open until closed by user
 running = True
