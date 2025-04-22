@@ -1,148 +1,170 @@
 import pygame
-import heapq
+import sys
 import random
+from collections import deque
+import heapq
 
-# Initialize pygame
 pygame.init()
 
-# Constants
+# Config
 WIDTH, HEIGHT = 600, 600
 ROWS, COLS = 20, 20
 CELL_SIZE = WIDTH // COLS
-WHITE, BLACK, GREEN, RED, BLUE, YELLOW, ORANGE, PURPLE = (255, 255, 255), (0, 0, 0), (0, 255, 0), (255, 0, 0), (0, 0, 255), (255, 255, 0), (255, 165, 0), (160, 32, 240)
+FPS = 10
 
-def draw_grid(screen):
+# Colors
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+GREEN = (0, 255, 0)
+RED = (255, 0, 0)
+
+# Init
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+clock = pygame.time.Clock()
+
+# Directions
+DIRS = [(0, -1), (1, 0), (0, 1), (-1, 0)]  # UP, RIGHT, DOWN, LEFT
+
+
+def draw_grid():
     for x in range(0, WIDTH, CELL_SIZE):
-        pygame.draw.line(screen, BLACK, (x, 0), (x, HEIGHT))
+        pygame.draw.line(screen, WHITE, (x, 0), (x, HEIGHT))
     for y in range(0, HEIGHT, CELL_SIZE):
-        pygame.draw.line(screen, BLACK, (0, y), (WIDTH, y))
+        pygame.draw.line(screen, WHITE, (0, y), (WIDTH, y))
 
-def draw_path(screen, path, color):
-    for row, col in path:
-        pygame.draw.rect(screen, color, (col * CELL_SIZE, row * CELL_SIZE, CELL_SIZE, CELL_SIZE))
 
-def get_neighbors(row, col):
-    directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
-    neighbors = [(row + dr, col + dc) for dr, dc in directions]
-    return [(r, c) for r, c in neighbors if 0 <= r < ROWS and 0 <= c < COLS]
+def get_neighbors(pos):
+    neighbors = []
+    for dx, dy in DIRS:
+        nx, ny = pos[0] + dx, pos[1] + dy
+        if 0 <= nx < COLS and 0 <= ny < ROWS:
+            neighbors.append((nx, ny))
+    return neighbors
 
-def bfs(start, goal):
-    queue = [(start, [start])]
-    visited = set()
-    
+
+# --- Pathfinding Algorithms ---
+def bfs(start, goal, grid):
+    queue = deque([start])
+    came_from = {start: None}
     while queue:
-        (row, col), path = queue.pop(0)
-        if (row, col) == goal:
-            return path
-        
-        if (row, col) not in visited:
-            visited.add((row, col))
-            for neighbor in get_neighbors(row, col):
-                queue.append((neighbor, path + [neighbor]))
-    return None
+        current = queue.popleft()
+        if current == goal:
+            break
+        for neighbor in get_neighbors(current):
+            if neighbor not in came_from and neighbor not in grid:
+                queue.append(neighbor)
+                came_from[neighbor] = current
+    return reconstruct_path(came_from, start, goal)
 
-def dfs(start, goal):
-    stack = [(start, [start])]
-    visited = set()
-    
+
+def dfs(start, goal, grid):
+    stack = [start]
+    came_from = {start: None}
     while stack:
-        (row, col), path = stack.pop()
-        if (row, col) == goal:
-            return path
-        
-        if (row, col) not in visited:
-            visited.add((row, col))
-            for neighbor in get_neighbors(row, col):
-                stack.append((neighbor, path + [neighbor]))
-    return None
+        current = stack.pop()
+        if current == goal:
+            break
+        for neighbor in get_neighbors(current):
+            if neighbor not in came_from and neighbor not in grid:
+                stack.append(neighbor)
+                came_from[neighbor] = current
+    return reconstruct_path(came_from, start, goal)
 
-def uniform_cost_search(start, goal):
-    open_set = [(0, start, [start])]
-    visited = set()
-    
+
+def heuristic(a, b):
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])  # Manhattan
+
+
+def a_star(start, goal, grid):
+    open_set = []
+    heapq.heappush(open_set, (0, start))
+    came_from = {start: None}
+    g_score = {start: 0}
+
     while open_set:
-        cost, (row, col), path = heapq.heappop(open_set)
-        if (row, col) == goal:
-            return path
-        
-        if (row, col) not in visited:
-            visited.add((row, col))
-            for neighbor in get_neighbors(row, col):
-                heapq.heappush(open_set, (cost + 1, neighbor, path + [neighbor]))
-    return None
+        _, current = heapq.heappop(open_set)
+        if current == goal:
+            break
+        for neighbor in get_neighbors(current):
+            if neighbor in grid:
+                continue
+            tentative_g = g_score[current] + 1
+            if neighbor not in g_score or tentative_g < g_score[neighbor]:
+                came_from[neighbor] = current
+                g_score[neighbor] = tentative_g
+                f = tentative_g + heuristic(neighbor, goal)
+                heapq.heappush(open_set, (f, neighbor))
+    return reconstruct_path(came_from, start, goal)
 
-def greedy_best_first_search(start, goal):
-    open_set = [(0, start, [start])]
-    visited = set()
-    
-    def heuristic(pos):
-        return abs(pos[0] - goal[0]) + abs(pos[1] - goal[1])
-    
+
+def best_first(start, goal, grid):
+    open_set = []
+    heapq.heappush(open_set, (heuristic(start, goal), start))
+    came_from = {start: None}
     while open_set:
-        _, (row, col), path = heapq.heappop(open_set)
-        if (row, col) == goal:
-            return path
-        
-        if (row, col) not in visited:
-            visited.add((row, col))
-            for neighbor in get_neighbors(row, col):
-                heapq.heappush(open_set, (heuristic(neighbor), neighbor, path + [neighbor]))
-    return None
+        _, current = heapq.heappop(open_set)
+        if current == goal:
+            break
+        for neighbor in get_neighbors(current):
+            if neighbor not in came_from and neighbor not in grid:
+                came_from[neighbor] = current
+                heapq.heappush(open_set, (heuristic(neighbor, goal), neighbor))
+    return reconstruct_path(came_from, start, goal)
 
-def a_star(start, goal):
-    open_set = [(0, start, [start])]
-    visited = set()
-    
-    def heuristic(pos):
-        return abs(pos[0] - goal[0]) + abs(pos[1] - goal[1])
-    
-    while open_set:
-        _, (row, col), path = heapq.heappop(open_set)
-        if (row, col) == goal:
-            return path
-        
-        if (row, col) not in visited:
-            visited.add((row, col))
-            for neighbor in get_neighbors(row, col):
-                heapq.heappush(open_set, (len(path) + heuristic(neighbor), neighbor, path + [neighbor]))
-    return None
 
-def main():
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("Pathfinding Visualization")
-    
-    start, goal = (random.randint(0, ROWS-1), random.randint(0, COLS-1)), (random.randint(0, ROWS-1), random.randint(0, COLS-1))
-    bfs_path = bfs(start, goal)
-    dfs_path = dfs(start, goal)
-    ucs_path = uniform_cost_search(start, goal)
-    gbfs_path = greedy_best_first_search(start, goal)
-    a_star_path = a_star(start, goal)
-    
-    running = True
-    while running:
-        screen.fill(WHITE)
-        draw_grid(screen)
-        
-        # if bfs_path:
-        #     draw_path(screen, bfs_path, GREEN)
-        # if dfs_path:
-        #     draw_path(screen, dfs_path, ORANGE)
-        # if ucs_path:
-        #     draw_path(screen, ucs_path, YELLOW)
-        if gbfs_path:
-            draw_path(screen, gbfs_path, PURPLE)
-        # if a_star_path:
-        #     draw_path(screen, a_star_path, BLUE)
-        
-        pygame.draw.rect(screen, RED, (start[1] * CELL_SIZE, start[0] * CELL_SIZE, CELL_SIZE, CELL_SIZE))
-        pygame.draw.rect(screen, BLACK, (goal[1] * CELL_SIZE, goal[0] * CELL_SIZE, CELL_SIZE, CELL_SIZE))
-        
-        pygame.display.flip()
+def reconstruct_path(came_from, start, goal):
+    if goal not in came_from:
+        return []
+    path = []
+    while goal != start:
+        path.append(goal)
+        goal = came_from[goal]
+    path.reverse()
+    return path
+
+
+# --- Main Game ---
+def main(algo_func):
+    snake = [(5, 5)]
+    apple = (random.randint(0, COLS - 1), random.randint(0, ROWS - 1))
+
+    while True:
+        screen.fill(BLACK)
+        draw_grid()
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                running = False
-    
-    pygame.quit()
+                pygame.quit()
+                sys.exit()
 
-if __name__ == "__main__":
-    main()
+        grid_set = set(snake[1:])
+        path = algo_func(snake[0], apple, grid_set)
+
+        if path:
+            snake.insert(0, path[0])
+        else:
+            pygame.quit()
+            print("No path to apple!")
+            sys.exit()
+
+        if snake[0] == apple:
+            while apple in snake:
+                apple = (random.randint(0, COLS - 1), random.randint(0, ROWS - 1))
+        else:
+            snake.pop()
+
+        # Draw apple
+        pygame.draw.rect(screen, RED, (*[c * CELL_SIZE for c in apple], CELL_SIZE, CELL_SIZE))
+        # Draw snake
+        for block in snake:
+            pygame.draw.rect(screen, GREEN, (*[c * CELL_SIZE for c in block], CELL_SIZE, CELL_SIZE))
+
+        pygame.display.flip()
+        clock.tick(FPS)
+
+
+# Choose the algorithm here:
+# main(bfs)
+# main(dfs)
+main(a_star)
+# main(best_first)
